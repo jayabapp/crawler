@@ -12,15 +12,7 @@ def isEmpty(value):
 
 
 def isValidAd(rawAd, commonData, specificData):
-    title = commonData.get("title")
-    description = commonData.get("description")
     mobile = commonData.get("mobile")
-
-    if isEmpty(title):
-        return False
-
-    if isEmpty(description):
-        return False
 
     if isEmpty(mobile):
         return False

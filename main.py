@@ -115,7 +115,7 @@ def runCategory(categoryName):
 
 
 def startAllCategories():
-    categories = ["villaRental", "vehicleRental", "tourAndCharter"]
+    categories = ["villaRental", "vehicleRental", "tourAndCharter", "rentTemporary"]
 
     threads = []
 
@@ -144,7 +144,12 @@ def main():
         startAllCategories()
         return
 
-    allowedCategories = {"villaRental", "vehicleRental", "tourAndCharter"}
+    allowedCategories = {
+        "villaRental",
+        "vehicleRental",
+        "tourAndCharter",
+        "rentTemporary",
+    }
 
     if categoryName not in allowedCategories:
         print("Invalid category.")
@@ -154,6 +159,7 @@ def main():
         print("python main.py villaRental")
         print("python main.py vehicleRental")
         print("python main.py tourAndCharter")
+        print("python main.py rentTemporary")
         return
 
     runCategory(categoryName)

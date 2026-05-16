@@ -407,10 +407,17 @@ def processAds(
                     f"extractAdData(listData, description=None) not found in {categoryName}/extractor.py"
                 )
 
-            specificData = extractAdData(
-                listData=listData,
-                description=description,
-            )
+            try:
+                specificData = extractAdData(
+                    listData=listData,
+                    description=description,
+                    rawAd=res,
+                )
+            except TypeError:
+                specificData = extractAdData(
+                    listData=listData,
+                    description=description,
+                )
 
             if specificData is None:
                 logging.warning(
