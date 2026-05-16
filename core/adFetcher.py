@@ -198,18 +198,9 @@ def buildCommonData(
 ):
     webengage = res.get("webengage", {})
 
-    if categoryName == "villaRental":
-        rent = getWebengageValue(webengage, "rent", "price", default=0)
-        deposit = getWebengageValue(webengage, "credit", "deposit", default=0)
-    else:
-        rent = getWebengageValue(webengage, "price", "rent", default=0)
-        deposit = getWebengageValue(webengage, "credit", "deposit", default=0)
-
-    return {
+    commonData = {
         "token_id": token,
         "city": getWebengageValue(webengage, "city", default=None),
-        "rent": rent,
-        "deposit": deposit,
         "title": title,
         "description": description,
         "district": getWebengageValue(webengage, "district", default=None),
@@ -219,6 +210,29 @@ def buildCommonData(
         "published_at": getPublishedAt(res),
         "created_at": datetime.datetime.now(),
     }
+
+    if categoryName == "villaRental":
+        commonData["rent"] = getWebengageValue(webengage, "rent", "price", default=0)
+        commonData["deposit"] = getWebengageValue(
+            webengage,
+            "credit",
+            "deposit",
+            default=0,
+        )
+
+    elif categoryName == "vehicleRental":
+        commonData["rent"] = getWebengageValue(webengage, "price", "rent", default=0)
+        commonData["deposit"] = getWebengageValue(
+            webengage,
+            "credit",
+            "deposit",
+            default=0,
+        )
+
+    elif categoryName == "tourAndCharter":
+        commonData["price"] = getWebengageValue(webengage, "price", default=0)
+
+    return commonData
 
 
 def callInsert(repositoryModule, conn, data, categoryName):
