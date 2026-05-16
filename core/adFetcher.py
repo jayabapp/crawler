@@ -399,7 +399,7 @@ def processAds(
             randomSleep(3, 9)
 
             if index % random.randint(7, 12) == 0 and index != 0:
-                longSleep = random.uniform(40, 90)
+                longSleep = random.uniform(10, 30)
                 logging.info(
                     f"{categoryName}: cooling down for {int(longSleep)} seconds..."
                 )

@@ -144,6 +144,9 @@ def fetchTokens(
 
         paginationData = None
 
+        # تعداد دفعاتی که توکن جدید پیدا نشده
+        noNewTokenCount = 0
+
         while True:
             try:
                 payload = buildSearchPayload(
@@ -155,10 +158,12 @@ def fetchTokens(
 
                 if response.status_code == 429:
                     sleepTime = random.uniform(900, 1800)
+
                     logging.warning(
                         f"{categoryName} token fetch rate limited. "
                         f"Sleeping {int(sleepTime)} seconds..."
                     )
+
                     time.sleep(sleepTime)
                     continue
 
@@ -166,6 +171,7 @@ def fetchTokens(
                     logging.warning(
                         f"{categoryName} token fetch bad response: {response.status_code}"
                     )
+
                     randomSleep(3, 9)
                     continue
 
@@ -177,6 +183,8 @@ def fetchTokens(
                 newTokens = getNewTokens(categoryName, tokens)
 
                 if newTokens:
+                    noNewTokenCount = 0
+
                     logging.info(f"{categoryName}: {len(newTokens)} new tokens found.")
 
                     processAds(
@@ -188,13 +196,35 @@ def fetchTokens(
                         filtersModule=filtersModule,
                         repositoryModule=repositoryModule,
                     )
+
                 else:
-                    logging.info(f"{categoryName}: no new tokens found.")
+                    noNewTokenCount += 1
+
+                    logging.info(
+                        f"{categoryName}: no new tokens found "
+                        f"({noNewTokenCount}/2)."
+                    )
+
+                    # اگر دو بار پشت سر هم توکن جدید پیدا نشد
+                    # pagination ریست میشه و دوباره از اول شروع میکنه
+                    if noNewTokenCount >= 2:
+                        logging.info(
+                            f"{categoryName}: restarting pagination from beginning..."
+                        )
+
+                        paginationData = None
+                        noNewTokenCount = 0
+
+                        randomSleep(5, 10)
+                        continue
 
                 waitTime = random.uniform(3, 8)
+
                 logging.info(
-                    f"{categoryName}: waiting {int(waitTime)} seconds before next token page..."
+                    f"{categoryName}: waiting {int(waitTime)} seconds "
+                    f"before next token page..."
                 )
+
                 time.sleep(waitTime)
 
             except Exception as loopError:
@@ -202,9 +232,12 @@ def fetchTokens(
                 logging.error(traceback.format_exc())
 
                 sleepTime = random.uniform(60, 180)
+
                 logging.info(
-                    f"{categoryName}: sleeping {int(sleepTime)} seconds after token loop error..."
+                    f"{categoryName}: sleeping {int(sleepTime)} seconds "
+                    f"after token loop error..."
                 )
+
                 time.sleep(sleepTime)
 
     except Exception as e:
