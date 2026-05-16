@@ -1,0 +1,8 @@
+__pycache__
+.env
+docker-compose.yml 
+Dockerfile 
+requirements.txt
+note.txt
+note.py
+divar_state.json
