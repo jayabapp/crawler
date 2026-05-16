@@ -25,7 +25,4 @@ def isValidAd(rawAd, commonData, specificData):
     if isEmpty(mobile):
         return False
 
-    if isEmpty(specificData.get("brand_and_model")):
-        return False
-
     return True

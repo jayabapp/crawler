@@ -1,8 +1,6 @@
 def createTable(conn):
-
     cur = conn.cursor()
 
-    # *****start create tables*****
     createScript = """
         CREATE TABLE IF NOT EXISTS tour_and_charter(
             id                      SERIAL PRIMARY KEY,
@@ -23,11 +21,12 @@ def createTable(conn):
             hotel_rating            varchar(20) DEFAULT NULL,
             departure_date          varchar(100) DEFAULT NULL,
             return_date             varchar(100) DEFAULT NULL,
-            days_of_stay            varchar(50) DEFAULT NULL,            
+            days_of_stay            varchar(50) DEFAULT NULL,
             published_at            timestamp DEFAULT NULL,
             created_at              timestamp DEFAULT NULL,
             deleted_at              timestamp DEFAULT NULL
-    )"""
+        )
+    """
 
     createIndexScript = """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tour_and_charter_token_id
@@ -38,4 +37,4 @@ def createTable(conn):
     cur.execute(createIndexScript)
 
     conn.commit()
-    # *****end create tables*****
+    cur.close()

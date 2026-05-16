@@ -360,6 +360,7 @@ def processAds(
             res = fetchAdData(session, token)
 
             if not res:
+                logging.warning(f"{categoryName}: no response for token {token}")
                 continue
 
             listData = getSectionWidgets(res, "LIST_DATA")
@@ -368,19 +369,31 @@ def processAds(
             descriptionSection = getSection(res, "DESCRIPTION")
 
             if not listData or not titleSection or not descriptionSection:
+                logging.warning(
+                    f"{categoryName}: missing sections for token {token}. "
+                    f"listData={bool(listData)}, titleSection={bool(titleSection)}, "
+                    f"descriptionSection={bool(descriptionSection)}"
+                )
                 continue
 
             title = getTitle(titleSection)
             description = getDescription(descriptionSection)
 
             if not title or not description:
+                logging.warning(
+                    f"{categoryName}: missing title or description for token {token}. "
+                    f"title={bool(title)}, description={bool(description)}"
+                )
                 continue
 
             randomSleep(2, 5)
 
+            # logging.info(f"{categoryName}: getting mobile for token {token}...")
+
             mobile = getMobile(res, token)
 
             if mobile is None:
+                logging.warning(f"{categoryName}: mobile not found for token {token}")
                 continue
 
             if isDuplicateAd(cur, tableName, title, description, mobile):
@@ -400,7 +413,14 @@ def processAds(
             )
 
             if specificData is None:
+                logging.warning(
+                    f"{categoryName}: extractor returned None for token {token}"
+                )
                 continue
+
+            # logging.info(
+            #     f"{categoryName}: extracted data for token {token}: {specificData}"
+            # )
 
             isValidAd = getattr(filtersModule, "isValidAd", None)
 
@@ -416,6 +436,10 @@ def processAds(
                 )
 
                 if not isValid:
+                    logging.warning(
+                        f"{categoryName}: ad rejected by filter for token {token}. "
+                        f"specificData={specificData}"
+                    )
                     continue
 
             latitude, longitude = getCoordinates(mapData)
