@@ -1,4 +1,5 @@
 import logging
+from psycopg2.extras import Json
 
 
 def insertAd(conn, ads):
@@ -37,7 +38,7 @@ def insertAd(conn, ads):
                 ads["weekend_rate"],
                 ads["special_dates_rate"],
                 ads["extra_person_charge"],
-                ads["features"],
+                Json(ads["features"]),
                 ads["published_at"],
                 ads["created_at"],
             ),

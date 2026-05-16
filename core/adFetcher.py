@@ -81,10 +81,13 @@ def getDescription(descriptionSection):
         widgets = descriptionSection.get("widgets", [])
 
         for widget in widgets:
+            if widget.get("widget_type") != "DESCRIPTION_ROW":
+                continue
+
             text = widget.get("data", {}).get("text")
 
-            if text:
-                return text
+            if text and text.strip() and text.strip() != "توضیحات":
+                return text.strip()
 
         return None
 
@@ -92,15 +95,60 @@ def getDescription(descriptionSection):
         return None
 
 
+def cleanPersianDateText(value):
+    if value is None:
+        return None
+
+    return str(value).replace("،", "").replace(",", "").replace("\u200c", " ").strip()
+
+
 def getPublishedAt(res):
     try:
         from core.convertTime import convertDate
+    except ModuleNotFoundError:
+        from core.timeConverter import convertDate
 
-        dateText = res["seo"]["title"].split(" - ")[1]
-        return convertDate(dateText)
+    try:
+        seoTitle = res.get("seo", {}).get("title", "")
+
+        if " - " in seoTitle:
+            dateText = seoTitle.split(" - ")[1]
+            dateText = cleanPersianDateText(dateText)
+            return convertDate(dateText)
+
+    except Exception:
+        pass
+
+    try:
+        titleWidgets = getSectionWidgets(res, "TITLE")
+
+        if not titleWidgets:
+            return None
+
+        for widget in titleWidgets:
+            if widget.get("widget_type") != "EXPANDABLE_SECTION":
+                continue
+
+            widgetList = widget.get("data", {}).get("widget_list", [])
+
+            for childWidget in widgetList:
+                if childWidget.get("widget_type") != "DESCRIPTION_ROW":
+                    continue
+
+                text = childWidget.get("data", {}).get("text", "")
+
+                for line in text.split("\n"):
+                    line = line.strip()
+
+                    if line.startswith("انتشار آگهی:"):
+                        dateText = line.replace("انتشار آگهی:", "").strip()
+                        dateText = cleanPersianDateText(dateText)
+                        return convertDate(dateText)
+
     except Exception as e:
-        logging.warning(f"Could not parse published_at: {e}")
-        return None
+        logging.warning(f"Could not parse published_at from TITLE section: {e}")
+
+    return None
 
 
 def getMobile(res, token):
