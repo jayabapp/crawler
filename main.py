@@ -121,6 +121,7 @@ def startAllCategories():
         "tourAndCharter",
         "rentTemporary",
         "rideSharing",
+        "catering",
     ]
 
     threads = []
@@ -156,6 +157,7 @@ def main():
         "tourAndCharter",
         "rentTemporary",
         "rideSharing",
+        "catering",
     }
 
     if categoryName not in allowedCategories:
@@ -168,6 +170,7 @@ def main():
         print("python main.py tourAndCharter")
         print("python main.py rentTemporary")
         print("python main.py rideSharing")
+        print("python main.py catering")
         return
 
     runCategory(categoryName)
