@@ -1,18 +1,24 @@
 import datetime
 import logging
+import os
 import random
 import re
+import threading
 import time
 import traceback
-
 import requests
-
-from core.contactBrowser import getContactSync
+from core.contactBrowser import CONTACT_CAPTCHA, getContactSync
+from core.notifier import sendTelegram
 from core.httpClient import createSession, randomSleep, refreshDynamicHeaders
+from core.captchaState import activateCaptchaPause, waitIfCaptchaPause
 
 MAX_RETRIES = 3
 BASE_BACKOFF_TIME = random.randint(20, 30)
 REQUEST_DELAY = random.randint(20, 30)
+
+CONTACT_REQUEST_LOCK = threading.Lock()
+LAST_CONTACT_REQUEST_AT = 0
+CONTACT_REQUEST_COUNT = 0
 
 
 def getConfigValue(configModule, camelName, upperName, default=None):
@@ -152,12 +158,55 @@ def getPublishedAt(res):
 
 
 def getMobile(res, token):
+    global LAST_CONTACT_REQUEST_AT
+    global CONTACT_REQUEST_COUNT
+
+    waitIfCaptchaPause()
+
     try:
         contactUuid = res["contact"]["action_log"]["server_side_info"]["info"][
             "contact_uuid"
         ]
 
-        return getContactSync(token, contactUuid)
+        with CONTACT_REQUEST_LOCK:
+            minDelay = int(os.getenv("CONTACT_REQUEST_MIN_DELAY", "45"))
+            maxExtraDelay = int(os.getenv("CONTACT_REQUEST_MAX_EXTRA_DELAY", "35"))
+
+            elapsed = time.time() - LAST_CONTACT_REQUEST_AT
+
+            if LAST_CONTACT_REQUEST_AT > 0 and elapsed < minDelay:
+                sleepTime = (minDelay - elapsed) + random.uniform(0, maxExtraDelay)
+
+                logging.info(
+                    f"Waiting {int(sleepTime)} seconds before next contact request..."
+                )
+
+                time.sleep(sleepTime)
+
+            CONTACT_REQUEST_COUNT += 1
+
+            contactsBeforeCooldown = int(
+                os.getenv("CONTACTS_BEFORE_LONG_COOLDOWN", "12")
+            )
+
+            if CONTACT_REQUEST_COUNT % contactsBeforeCooldown == 0:
+                cooldownMin = int(os.getenv("CONTACT_LONG_COOLDOWN_MIN", "300"))
+                cooldownMax = int(os.getenv("CONTACT_LONG_COOLDOWN_MAX", "700"))
+
+                cooldown = random.uniform(cooldownMin, cooldownMax)
+
+                logging.info(
+                    f"Long contact cooldown after {CONTACT_REQUEST_COUNT} requests: "
+                    f"{int(cooldown)} seconds..."
+                )
+
+                time.sleep(cooldown)
+
+            mobile = getContactSync(token, contactUuid)
+
+            LAST_CONTACT_REQUEST_AT = time.time()
+
+            return mobile
 
     except Exception as e:
         logging.warning(f"Get contact number failed for token {token}: {e}")
@@ -318,7 +367,7 @@ def fetchAdData(session, token):
 
             response = session.get(
                 url,
-                timeout=(5, 20),
+                timeout=(5, 10),
             )
 
             if response.status_code == 429:
@@ -434,20 +483,6 @@ def processAds(
                 )
                 continue
 
-            randomSleep(2, 5)
-
-            # logging.info(f"{categoryName}: getting mobile for token {token}...")
-
-            mobile = getMobile(res, token)
-
-            if mobile is None:
-                logging.warning(f"{categoryName}: mobile not found for token {token}")
-                continue
-
-            if isDuplicateAd(cur, tableName, title, description, mobile):
-                logging.info(f"{categoryName}: duplicate advertisement found.")
-                continue
-
             extractAdData = getattr(extractorModule, "extractAdData", None)
 
             if not extractAdData:
@@ -478,14 +513,12 @@ def processAds(
             # )
 
             isValidAd = getattr(filtersModule, "isValidAd", None)
-
             if isValidAd:
                 isValid = isValidAd(
                     rawAd=res,
                     commonData={
                         "title": title,
                         "description": description,
-                        "mobile": mobile,
                     },
                     specificData=specificData,
                 )
@@ -496,6 +529,55 @@ def processAds(
                         f"specificData={specificData}"
                     )
                     continue
+
+            randomSleep(20, 60)
+
+            mobile = getMobile(res, token)
+
+            if mobile == CONTACT_CAPTCHA:
+                cooldownSeconds = int(
+                    os.getenv("CONTACT_CAPTCHA_COOLDOWN_SECONDS", "3600")
+                )
+
+                logging.error(
+                    f"{categoryName}: CAPTCHA detected while getting mobile for token {token}. "
+                    f"Cooling down for {cooldownSeconds} seconds..."
+                )
+
+                sendTelegram(
+                    "⏸ crawler به خاطر کپچای دیوار pause شد.\n\n"
+                    f"Category: <code>{categoryName}</code>\n"
+                    f"Token: <code>{token}</code>\n"
+                    f"Cooldown: <code>{cooldownSeconds}</code> seconds"
+                )
+
+                time.sleep(cooldownSeconds)
+                break
+
+            if mobile is None:
+                logging.warning(f"{categoryName}: mobile not found for token {token}")
+                continue
+
+            if isValidAd:
+                isValidAfterMobile = isValidAd(
+                    rawAd=res,
+                    commonData={
+                        "title": title,
+                        "description": description,
+                        "mobile": mobile,
+                    },
+                    specificData=specificData,
+                )
+
+                if not isValidAfterMobile:
+                    logging.warning(
+                        f"{categoryName}: ad rejected after mobile check for token {token}."
+                    )
+                    continue
+
+            if isDuplicateAd(cur, tableName, title, description, mobile):
+                logging.info(f"{categoryName}: duplicate advertisement found.")
+                continue
 
             latitude, longitude = getCoordinates(mapData)
 

@@ -136,6 +136,25 @@ def startAllCategories():
         thread.start()
         threads.append(thread)
 
+    # for categoryName in categories:
+    #     thread = threading.Thread(
+    #         target=runCategory,
+    #         args=(categoryName,),
+    #         name=categoryName,
+    #         daemon=False,
+    #     )
+    #     thread.start()
+    #     threads.append(thread)
+
+    #     # مهم:
+    #     # شروع categoryها را پشت‌سرهم نکن.
+    #     # هم‌زمان بالا آمدن ۶ crawler احتمال محدودیت را زیاد می‌کند.
+    #     startupDelay = random.uniform(180, 420)
+    #     logging.info(
+    #         f"Waiting {int(startupDelay)} seconds before starting next category..."
+    #     )
+    #     time.sleep(startupDelay)
+
     for thread in threads:
         thread.join()
 

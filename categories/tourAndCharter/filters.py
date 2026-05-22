@@ -14,7 +14,7 @@ def isEmpty(value):
 def isValidAd(rawAd, commonData, specificData):
     mobile = commonData.get("mobile")
 
-    if isEmpty(mobile):
+    if "mobile" in commonData and isEmpty(mobile):
         return False
 
     return True

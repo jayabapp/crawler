@@ -23,12 +23,28 @@ USER_AGENTS = [
 ]
 
 
+# def getRandomScreenSize():
+#     return random.choice(SCREEN_SIZES)
+
+
+# def getRandomUserAgent():
+#     return random.choice(USER_AGENTS)
+
+STABLE_SCREEN_SIZE = "1366x768"
+
+STABLE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/137.0.0.0 Safari/537.36"
+)
+
+
 def getRandomScreenSize():
-    return random.choice(SCREEN_SIZES)
+    return STABLE_SCREEN_SIZE
 
 
 def getRandomUserAgent():
-    return random.choice(USER_AGENTS)
+    return STABLE_USER_AGENT
 
 
 def buildHeaders(referer="https://divar.ir/"):

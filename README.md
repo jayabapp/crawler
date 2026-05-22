@@ -13,3 +13,21 @@ All div crawlers together
 
     <!-- If you want to run specific crawler try this -->
     python3 main.py CRAWLER_NAME
+
+
+*** Env file: ***
+    USERNAME_DB="database username"
+    PASSWORD_DB="database password"
+    HOSTNAME_DB="database host"
+    DATABASE_DB="database name"
+
+
+    TELEGRAM_BOT_TOKEN="telegram bot token"
+    TELEGRAM_CHAT_ID="your user ID (int)"
+
+    CONTACT_REQUEST_MIN_DELAY=45
+    CONTACT_REQUEST_MAX_EXTRA_DELAY=35
+    CONTACT_CAPTCHA_COOLDOWN_SECONDS=3600
+    CONTACTS_BEFORE_LONG_COOLDOWN=12
+    CONTACT_LONG_COOLDOWN_MIN=300
+    CONTACT_LONG_COOLDOWN_MAX=500

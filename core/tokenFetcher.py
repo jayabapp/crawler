@@ -178,6 +178,15 @@ def fetchTokens(
                 data = response.json()
 
                 tokens = extractTokens(data)
+                if not tokens:
+                    logging.info(
+                        f"{categoryName}: empty token page. Resetting pagination."
+                    )
+                    paginationData = None
+                    noNewTokenCount += 1
+                    randomSleep(20, 60)
+                    continue
+
                 paginationData = data.get("pagination_data")
 
                 newTokens = getNewTokens(categoryName, tokens)
@@ -209,13 +218,18 @@ def fetchTokens(
                     # pagination ریست میشه و دوباره از اول شروع میکنه
                     if noNewTokenCount >= 2:
                         logging.info(
-                            f"{categoryName}: restarting pagination from beginning..."
+                            f"{categoryName}: restarting pagination from beginning and clearing visited tokens..."
                         )
 
                         paginationData = None
                         noNewTokenCount = 0
 
-                        randomSleep(5, 10)
+                        # مهم:
+                        # tokenهای seen شده را پاک می‌کنیم تا صفحه اول دوباره بررسی شود.
+                        # آگهی‌هایی که قبلاً ذخیره شده‌اند، در processAds با filterTokens از دیتابیس حذف می‌شوند.
+                        visitedTokensByCategory[categoryName] = set()
+
+                        randomSleep(20, 60)
                         continue
 
                 waitTime = random.uniform(3, 8)

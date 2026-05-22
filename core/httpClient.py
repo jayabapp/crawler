@@ -48,15 +48,12 @@ def createSession(
 
 
 def refreshDynamicHeaders(session, referer=None):
-    dynamicHeaders = {
-        "x-screen-size": getRandomScreenSize(),
-        "user-agent": getRandomUserAgent(),
-    }
-
+    """
+    Headerها را وسط session تغییر نده.
+    تغییر دائمی user-agent / screen-size رفتار غیرطبیعی ایجاد می‌کند.
+    """
     if referer:
-        dynamicHeaders["referer"] = referer
-
-    session.headers.update(dynamicHeaders)
+        session.headers.update({"referer": referer})
 
 
 def safeRequest(
