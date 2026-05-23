@@ -1,0 +1,7 @@
+psycopg2-binary
+requests
+urllib3
+python-dotenv
+playwright
+jdatetime
+Unidecode

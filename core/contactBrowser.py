@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright
 
 from core.notifier import sendTelegram
 
-PROFILE_DIR = Path.cwd() / "divar_browser_profile"
+PROFILE_DIR = Path(os.getenv("DIVAR_PROFILE_DIR", Path.cwd() / "divar_browser_profile"))
 CONTACT_CAPTCHA = "__CAPTCHA_REQUIRED__"
 
 
@@ -52,6 +52,7 @@ async def fetchContactAsync(token, contactUuid):
             context = await playwright.chromium.launch_persistent_context(
                 user_data_dir=str(PROFILE_DIR),
                 headless=headless,
+                executable_path="/usr/bin/chromium",
                 viewport={"width": 1280, "height": 800},
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

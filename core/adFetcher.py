@@ -7,6 +7,7 @@ import threading
 import time
 import traceback
 import requests
+import hashlib
 from core.contactBrowser import CONTACT_CAPTCHA, getContactSync
 from core.notifier import sendTelegram
 from core.httpClient import createSession, randomSleep, refreshDynamicHeaders
@@ -19,6 +20,18 @@ REQUEST_DELAY = random.randint(20, 30)
 CONTACT_REQUEST_LOCK = threading.Lock()
 LAST_CONTACT_REQUEST_AT = 0
 CONTACT_REQUEST_COUNT = 0
+
+
+def shouldProcessToken(token):
+    workerCount = int(os.getenv("WORKER_COUNT", "1"))
+    workerIndex = int(os.getenv("WORKER_INDEX", "0"))
+
+    if workerCount <= 1:
+        return True
+
+    tokenHash = int(hashlib.sha256(token.encode("utf-8")).hexdigest(), 16)
+
+    return tokenHash % workerCount == workerIndex
 
 
 def getConfigValue(configModule, camelName, upperName, default=None):
@@ -441,6 +454,12 @@ def processAds(
         logging.info(f"{categoryName}: start getting advertisement data...")
 
         tokens = filterTokens(cur, tokens, tableName)
+
+        tokens = [token for token in tokens if shouldProcessToken(token)]
+
+        logging.info(
+            f"{categoryName}: {len(tokens)} tokens assigned to this worker after partition."
+        )
 
         logging.info(f"{categoryName}: {len(tokens)} tokens after database filter.")
 

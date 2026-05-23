@@ -1,0 +1,87 @@
+services:
+  rent_worker_1:
+    build: .
+    container_name: rent_worker_1
+    command: python3 main.py rentTemporary
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WORKER_NAME: rent_worker_1
+      WORKER_COUNT: 3
+      WORKER_INDEX: 0
+      DIVAR_PROFILE_DIR: /app/profiles/phone1
+      CONTACT_REQUEST_MIN_DELAY: 90
+      CONTACT_REQUEST_MAX_EXTRA_DELAY: 60
+      CONTACTS_BEFORE_LONG_COOLDOWN: 8
+      CONTACT_LONG_COOLDOWN_MIN: 600
+      CONTACT_LONG_COOLDOWN_MAX: 1200
+      CONTACT_CAPTCHA_COOLDOWN_SECONDS: 7200
+    volumes:
+      - ./profiles/phone1:/app/profiles/phone1
+    network_mode: host
+    # depends_on:
+    #   - postgres
+
+  rent_worker_2:
+    build: .
+    container_name: rent_worker_2
+    command: sh -c "sleep 180 && python3 main.py rentTemporary"
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WORKER_NAME: rent_worker_2
+      WORKER_COUNT: 3
+      WORKER_INDEX: 1
+      DIVAR_PROFILE_DIR: /app/profiles/phone2
+      CONTACT_REQUEST_MIN_DELAY: 90
+      CONTACT_REQUEST_MAX_EXTRA_DELAY: 60
+      CONTACTS_BEFORE_LONG_COOLDOWN: 8
+      CONTACT_LONG_COOLDOWN_MIN: 600
+      CONTACT_LONG_COOLDOWN_MAX: 1200
+      CONTACT_CAPTCHA_COOLDOWN_SECONDS: 7200
+    volumes:
+      - ./profiles/phone2:/app/profiles/phone2
+    network_mode: host
+    # depends_on:
+    #   - postgres
+
+  # rent_worker_3:
+  #   build: .
+  #   container_name: rent_worker_3
+  #   command: sh -c "sleep 300 && python3 main.py rentTemporary"
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     WORKER_NAME: rent_worker_3
+  #     WORKER_COUNT: 3
+  #     WORKER_INDEX: 2
+  #     DIVAR_PROFILE_DIR: /app/profiles/phone3
+  #     CONTACT_REQUEST_MIN_DELAY: 90
+  #     CONTACT_REQUEST_MAX_EXTRA_DELAY: 60
+  #     CONTACTS_BEFORE_LONG_COOLDOWN: 8
+  #     CONTACT_LONG_COOLDOWN_MIN: 600
+  #     CONTACT_LONG_COOLDOWN_MAX: 1200
+  #     CONTACT_CAPTCHA_COOLDOWN_SECONDS: 7200
+  #   volumes:
+  #     - ./profiles/phone3:/app/profiles/phone3
+  #   depends_on:
+  #     - postgres
+
+  # postgres:
+  #   image: postgres:16
+  #   container_name: divar_postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: ${USERNAME_DB}
+  #     POSTGRES_PASSWORD: ${PASSWORD_DB}
+  #     POSTGRES_DB: ${DATABASE_DB}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+volumes:
+  postgres_data:

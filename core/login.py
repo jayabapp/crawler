@@ -1,10 +1,10 @@
 import asyncio
 from pathlib import Path
-
+import os
 from playwright.async_api import async_playwright
 
-PROFILE_DIR = Path.cwd() / "divar_browser_profile"
-STATE_PATH = Path.cwd() / "divar_state.json"
+PROFILE_DIR = Path(os.getenv("DIVAR_PROFILE_DIR", Path.cwd() / "divar_browser_profile"))
+STATE_PATH = Path(os.getenv("DIVAR_STATE_PATH", Path.cwd() / "divar_state.json"))
 
 
 async def login():
