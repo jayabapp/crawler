@@ -211,12 +211,10 @@ def fetchTokens(
 
                     logging.info(
                         f"{categoryName}: no new tokens found "
-                        f"({noNewTokenCount}/2)."
+                        f"({noNewTokenCount}/20)."
                     )
 
-                    # اگر دو بار پشت سر هم توکن جدید پیدا نشد
-                    # pagination ریست میشه و دوباره از اول شروع میکنه
-                    if noNewTokenCount >= 2:
+                    if noNewTokenCount >= 20:
                         logging.info(
                             f"{categoryName}: restarting pagination from beginning and clearing visited tokens..."
                         )
@@ -224,9 +222,6 @@ def fetchTokens(
                         paginationData = None
                         noNewTokenCount = 0
 
-                        # مهم:
-                        # tokenهای seen شده را پاک می‌کنیم تا صفحه اول دوباره بررسی شود.
-                        # آگهی‌هایی که قبلاً ذخیره شده‌اند، در processAds با filterTokens از دیتابیس حذف می‌شوند.
                         visitedTokensByCategory[categoryName] = set()
 
                         randomSleep(20, 60)

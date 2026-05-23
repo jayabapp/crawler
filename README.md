@@ -1,6 +1,13 @@
 # Div-Crawlers
 All div crawlers together
 
+
+
+*** How to export data to Excel ***
+    python3 -m dataService.dataMain
+
+
+
 *** How to run with docker ***
     <!-- Start if you never login before or you ran into a CAPTCHA do this if not skip this -->
         <!-- For all phones. 1 is just an example -->
