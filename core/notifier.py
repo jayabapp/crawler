@@ -5,10 +5,10 @@ import time
 import requests
 
 _last_telegram_sent_at = 0
-proxies = {
-    "http": "socks5h://127.0.0.1:10808",
-    "https": "socks5h://127.0.0.1:10808",
-}
+# proxies = {
+#     "http": "socks5h://127.0.0.1:10808",
+#     "https": "socks5h://127.0.0.1:10808",
+# }
 
 
 def sendTelegram(message, throttleSeconds=300):
@@ -41,7 +41,7 @@ def sendTelegram(message, throttleSeconds=300):
                 "parse_mode": "HTML",
             },
             timeout=10,
-            proxies=proxies,
+            # proxies=proxies,
         )
 
         if response.status_code != 200:

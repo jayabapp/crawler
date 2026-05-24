@@ -5,3 +5,7 @@ python-dotenv
 playwright
 jdatetime
 Unidecode
+Flask
+pillow
+opencv-python
+numpy

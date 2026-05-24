@@ -554,9 +554,20 @@ def processAds(
             mobile = getMobile(res, token)
 
             if mobile == CONTACT_CAPTCHA:
-                cooldownSeconds = int(
-                    os.getenv("CONTACT_CAPTCHA_COOLDOWN_SECONDS", "3600")
-                )
+                # activateCaptchaPause()
+
+                from core.captchaBreak import captchaBreakMain
+
+                captchaRes = captchaBreakMain(session=session, res=res, token=token)
+
+                if captchaRes:
+                    cooldownSeconds = int(
+                        os.getenv("CONTACT_CAPTCHA_RESOLVED_COOLDOWN_SECONDS", "60")
+                    )
+                else:
+                    cooldownSeconds = int(
+                        os.getenv("CONTACT_CAPTCHA_COOLDOWN_SECONDS", "7200")
+                    )
 
                 logging.error(
                     f"{categoryName}: CAPTCHA detected while getting mobile for token {token}. "
@@ -571,6 +582,10 @@ def processAds(
                 )
 
                 time.sleep(cooldownSeconds)
+
+                if captchaRes:
+                    continue
+
                 break
 
             if mobile is None:
