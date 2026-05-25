@@ -1,5 +1,6 @@
 psycopg2-binary
 requests
+requests[socks]
 urllib3
 python-dotenv
 playwright
@@ -7,5 +8,8 @@ jdatetime
 Unidecode
 Flask
 pillow
-opencv-python
+opencv-python-headless
 numpy
+pandas
+openpyxl
+PySocks
