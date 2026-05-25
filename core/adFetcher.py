@@ -554,39 +554,43 @@ def processAds(
             mobile = getMobile(res, token)
 
             if mobile == CONTACT_CAPTCHA:
-                # activateCaptchaPause()
-
                 from core.captchaBreak import captchaBreakMain
 
                 captchaRes = captchaBreakMain(session=session, res=res, token=token)
 
-                if captchaRes:
-                    cooldownSeconds = int(
-                        os.getenv("CONTACT_CAPTCHA_RESOLVED_COOLDOWN_SECONDS", "60")
+                if captchaRes is True:
+                    logging.info(f"CAPTCHA/contact challenge passed for token {token}")
+                    return True
+
+                if isinstance(captchaRes, dict):
+                    status = captchaRes.get("status")
+                    reason = captchaRes.get("reason")
+
+                    if status == "manual_required":
+                        logging.warning(
+                            f"{categoryName}: manual CAPTCHA required for token {token}. "
+                            f"reason={reason}. Skipping this token without global cooldown."
+                        )
+                        continue
+
+                    if status == "blocked":
+                        logging.warning(
+                            f"{categoryName}: blocked/limited while getting mobile for token {token}. "
+                            f"Cooling down for shorter period..."
+                        )
+                        time.sleep(900)
+                        continue
+
+                    logging.warning(
+                        f"{categoryName}: contact challenge failed for token {token}. "
+                        f"status={status}, reason={reason}. Skipping token."
                     )
-                else:
-                    cooldownSeconds = int(
-                        os.getenv("CONTACT_CAPTCHA_COOLDOWN_SECONDS", "7200")
-                    )
-
-                logging.error(
-                    f"{categoryName}: CAPTCHA detected while getting mobile for token {token}. "
-                    f"Cooling down for {cooldownSeconds} seconds..."
-                )
-
-                sendTelegram(
-                    "⏸ crawler به خاطر کپچای دیوار pause شد.\n\n"
-                    f"Category: <code>{categoryName}</code>\n"
-                    f"Token: <code>{token}</code>\n"
-                    f"Cooldown: <code>{cooldownSeconds}</code> seconds"
-                )
-
-                time.sleep(cooldownSeconds)
-
-                if captchaRes:
                     continue
 
-                break
+                logging.warning(
+                    f"{categoryName}: unknown captcha result for token {token}. Skipping token."
+                )
+                continue
 
             if mobile is None:
                 logging.warning(f"{categoryName}: mobile not found for token {token}")

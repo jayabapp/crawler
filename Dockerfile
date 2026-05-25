@@ -34,11 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+COPY wheels /wheels
 
-RUN pip install --no-cache-dir \
-    -i https://mirror-pypi.runflare.com/simple \
-    --trusted-host mirror-pypi.runflare.com \
-    -r requirements.txt
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 
 COPY . .
 
