@@ -2,17 +2,17 @@ FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    CHROMIUM_PATH=/usr/bin/chromium
+RUN printf '%s\n' \
+    'deb https://mirror.aminidc.com/debian bookworm main contrib non-free non-free-firmware' \
+    'deb https://mirror.aminidc.com/debian bookworm-updates main contrib non-free non-free-firmware' \
+    > /etc/apt/sources.list && \
+    rm -f /etc/apt/sources.list.d/debian.sources
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
     wget \
     gnupg \
+    curl \
+    ca-certificates \
     chromium \
     chromium-driver \
     fonts-liberation \
@@ -31,17 +31,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpangocairo-1.0-0 \
     libpango-1.0-0 \
     libgtk-3-0 \
-    libglib2.0-0 \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+COPY wheels /wheels
 
-RUN python -m pip install --upgrade pip setuptools wheel \
-    && pip install -r requirements.txt
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/logs /app/debug /app/profiles
 
 CMD ["python3", "main.py", "rentTemporary"]

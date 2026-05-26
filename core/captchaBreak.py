@@ -353,8 +353,11 @@ def solveCaptcha(token):
 
         piece_url = page.locator("img.puzzle").get_attribute("src")
 
+        failedCount = 0
         if not bg_url or not piece_url:
-
+            if failedCount > 3:
+                solveCaptcha(token)
+                failedCount += 1
             return captchaResult(
                 "failed",
                 reason="captcha_images_missing",
