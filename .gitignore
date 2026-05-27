@@ -12,3 +12,5 @@ dataService/excelData
 debug
 wheels
 .venv
+state
+logs

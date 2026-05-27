@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def lastDataLog(conn):
@@ -50,6 +50,8 @@ def getDataFromDatabase(conn, lastDate, tblName, columns):
 
         if lastDate is None:
             lastDate = datetime(1970, 1, 1)
+
+        lastDate = lastDate - timedelta(hours=3, minutes=30)
 
         query = f"""
             SELECT {columnStr}
