@@ -455,11 +455,11 @@ def processAds(
 
         tokens = filterTokens(cur, tokens, tableName)
 
-        tokens = [token for token in tokens if shouldProcessToken(token)]
+        # tokens = [token for token in tokens if shouldProcessToken(token)]
 
-        logging.info(
-            f"{categoryName}: {len(tokens)} tokens assigned to this worker after partition."
-        )
+        # logging.info(
+        #     f"{categoryName}: {len(tokens)} tokens assigned to this worker after partition."
+        # )
 
         logging.info(f"{categoryName}: {len(tokens)} tokens after database filter.")
 
@@ -552,46 +552,76 @@ def processAds(
             randomSleep(20, 60)
 
             mobile = getMobile(res, token)
-
             if mobile == CONTACT_CAPTCHA:
                 from core.captchaBreak import captchaBreakMain
 
-                captchaRes = captchaBreakMain(session=session, res=res, token=token)
+                max_retries = 3
+                captchaRes = None
 
-                if captchaRes is True:
-                    logging.info(f"CAPTCHA/contact challenge passed for token {token}")
-                    return True
-
-                if isinstance(captchaRes, dict):
-                    status = captchaRes.get("status")
-                    reason = captchaRes.get("reason")
-
-                    if status == "manual_required":
-                        logging.warning(
-                            f"{categoryName}: manual CAPTCHA required for token {token}. "
-                            f"reason={reason}. Skipping this token without global cooldown."
-                        )
-                        continue
-
-                    if status == "blocked":
-                        logging.warning(
-                            f"{categoryName}: blocked/limited while getting mobile for token {token}. "
-                            f"Cooling down for shorter period..."
-                        )
-                        time.sleep(900)
-                        continue
-
-                    logging.warning(
-                        f"{categoryName}: contact challenge failed for token {token}. "
-                        f"status={status}, reason={reason}. Skipping token."
+                for attempt in range(max_retries):
+                    logging.info(
+                        f"{categoryName}: CAPTCHA attempt {attempt + 1}/{max_retries} for token {token}"
                     )
-                    continue
+
+                    captchaRes = captchaBreakMain(session=session, res=res, token=token)
+
+                    if captchaRes is True:
+                        logging.info(
+                            f"CAPTCHA/contact challenge passed for token {token}"
+                        )
+                        return True
+
+                    if isinstance(captchaRes, dict):
+                        status = captchaRes.get("status")
+                        reason = captchaRes.get("reason")
+
+                        if status == "success":
+                            logging.info(
+                                f"{categoryName}: contact challenge solved successfully "
+                                f"for token {token}. reason={reason}"
+                            )
+                            return True
+                        # نیاز به حل دستی
+                        if status == "manual_required":
+                            logging.warning(
+                                f"{categoryName}: manual CAPTCHA required for token {token}. "
+                                f"reason={reason}. Skipping this token without global cooldown."
+                            )
+                            break
+
+                        # بلاک یا ریت‌لیمیت
+                        if status == "blocked":
+                            logging.warning(
+                                f"{categoryName}: blocked/limited while getting mobile for token {token}. "
+                                f"Cooling down for shorter period..."
+                            )
+                            time.sleep(900)
+                            break
+
+                        logging.warning(
+                            f"{categoryName}: contact challenge failed for token {token}. "
+                            f"status={status}, reason={reason}. retry={attempt + 1}"
+                        )
+
+                        # اگر هنوز retry باقی مونده
+                        if attempt < max_retries - 1:
+                            time.sleep(5)
+                            continue
+
+                    else:
+                        logging.warning(
+                            f"{categoryName}: unknown captcha result for token {token}. "
+                            f"retry={attempt + 1}"
+                        )
+
+                        if attempt < max_retries - 1:
+                            time.sleep(5)
+                            continue
 
                 logging.warning(
-                    f"{categoryName}: unknown captcha result for token {token}. Skipping token."
+                    f"{categoryName}: all CAPTCHA retries failed for token {token}. Skipping token."
                 )
                 continue
-
             if mobile is None:
                 logging.warning(f"{categoryName}: mobile not found for token {token}")
                 continue

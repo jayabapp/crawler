@@ -10,7 +10,16 @@ services:
       WORKER_NAME: rent_worker_1
       WORKER_COUNT: 2
       WORKER_INDEX: 0
+
       DIVAR_PROFILE_DIR: /app/profiles/phone1
+
+      PAGINATION_STATE_DIR: /app/state
+      DEBUG_DIR: /app/debug
+
+      NEWEST_CHECK_EVERY_N_LOOPS: 3
+      NEWEST_MAX_PAGES: 1
+      NO_NEW_TOKEN_SLEEP_THRESHOLD: 20
+
       CONTACT_REQUEST_MIN_DELAY: 45
       CONTACT_REQUEST_MAX_EXTRA_DELAY: 30
       CONTACTS_BEFORE_LONG_COOLDOWN: 8
@@ -18,11 +27,15 @@ services:
       CONTACT_LONG_COOLDOWN_MAX: 900
       CONTACT_CAPTCHA_COOLDOWN_SECONDS: 7200
       CONTACT_CAPTCHA_RESOLVED_COOLDOWN_SECONDS: 60
+
       SMS_WEBHOOK_PORT: 5001
       SMS_CODE_TIMEOUT: 300
     volumes:
       - ./profiles/phone1:/app/profiles/phone1
+      - ./state:/app/state
+      - ./debug:/app/debug
     network_mode: host
+    shm_size: "1gb"
 
   rent_worker_2:
     build: .
@@ -35,7 +48,16 @@ services:
       WORKER_NAME: rent_worker_2
       WORKER_COUNT: 2
       WORKER_INDEX: 1
+
       DIVAR_PROFILE_DIR: /app/profiles/phone2
+
+      PAGINATION_STATE_DIR: /app/state
+      DEBUG_DIR: /app/debug
+
+      NEWEST_CHECK_EVERY_N_LOOPS: 3
+      NEWEST_MAX_PAGES: 1
+      NO_NEW_TOKEN_SLEEP_THRESHOLD: 20
+
       CONTACT_REQUEST_MIN_DELAY: 45
       CONTACT_REQUEST_MAX_EXTRA_DELAY: 30
       CONTACTS_BEFORE_LONG_COOLDOWN: 8
@@ -43,11 +65,15 @@ services:
       CONTACT_LONG_COOLDOWN_MAX: 900
       CONTACT_CAPTCHA_COOLDOWN_SECONDS: 7200
       CONTACT_CAPTCHA_RESOLVED_COOLDOWN_SECONDS: 60
+
       SMS_WEBHOOK_PORT: 5002
       SMS_CODE_TIMEOUT: 300
     volumes:
       - ./profiles/phone2:/app/profiles/phone2
+      - ./state:/app/state
+      - ./debug:/app/debug
     network_mode: host
+    shm_size: "1gb"
 
 volumes:
   postgres_data:
