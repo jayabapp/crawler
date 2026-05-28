@@ -533,8 +533,11 @@ def solveCaptcha(token):
 
 
 # -----------------------------------------
-# ************ SMS PART ************
+# ************ SMS / OTP PART ************
 # -----------------------------------------
+
+_smsEvents = []
+_smsCondition = threading.Condition()
 
 
 def normalizeText(value):
@@ -554,19 +557,17 @@ def normalizeText(value):
 
 
 def extractSmsCode(message):
-
     message = normalizeText(message)
 
     patterns = [
         r"Code\s*:\s*([0-9]{4,8})",
         r"code\s*:\s*([0-9]{4,8})",
         r"کد\s*[:：]?\s*([0-9]{4,8})",
-        r"([0-9]{6})",
+        r"(?<!\d)([0-9]{6})(?!\d)",
     ]
 
     for pattern in patterns:
         match = re.search(pattern, message, flags=re.IGNORECASE)
-
         if match:
             return match.group(1)
 
@@ -596,26 +597,23 @@ def sms():
 
     sender = normalizeText(sender)
     msg = normalizeText(msg)
-
     code = extractSmsCode(msg)
-
-    print("NEW SMS")
-    print("FROM:", sender)
-    print("TEXT:", msg)
-    print("CODE:", code)
-    print("-" * 30)
 
     logging.info(f"New SMS received. sender={sender}, code={code}")
 
     if code:
-        _smsQueue.put(
-            {
-                "sender": sender,
-                "message": msg,
-                "code": code,
-                "received_at": time.time(),
-            }
-        )
+        event = {
+            "sender": sender,
+            "message": msg,
+            "code": code,
+            "received_at": time.time(),
+        }
+
+        with _smsCondition:
+            _smsEvents.append(event)
+            # keep memory bounded and avoid very old OTP reuse
+            del _smsEvents[:-50]
+            _smsCondition.notify_all()
 
     return "OK"
 
@@ -647,400 +645,289 @@ def startSmsServer():
         logging.info(f"SMS webhook server started on {host}:{port}")
 
 
-def getSmsCode(timeout=None):
-
+def getSmsCode(timeout=None, since=None):
+    """
+    Wait for an SMS OTP without consuming it from a global Queue.
+    This fixes the race where an old listener thread could steal the current OTP.
+    """
     startSmsServer()
 
     if timeout is None:
         timeout = int(os.getenv("SMS_CODE_TIMEOUT", "300"))
 
+    if since is None:
+        since = time.time()
+
+    deadline = time.time() + timeout
     logging.info(f"Waiting for SMS code for {timeout} seconds...")
 
+    with _smsCondition:
+        while True:
+            for item in reversed(_smsEvents):
+                if item.get("received_at", 0) >= since and item.get("code"):
+                    code = item.get("code")
+                    logging.info(f"OTP code received from SMS: {code}")
+                    return code
+
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                logging.warning("SMS code timeout.")
+                return None
+
+            _smsCondition.wait(timeout=min(remaining, 2))
+
+
+def getOtpCode(token=None, started_at=None):
+    """
+    First try automatic SMS webhook. If it is not received quickly,
+    ask the operator on Telegram and use their reply as OTP.
+    """
+    if started_at is None:
+        started_at = time.time()
+
+    auto_timeout = int(os.getenv("AUTO_SMS_OTP_TIMEOUT", "45"))
+    manual_timeout = int(os.getenv("MANUAL_TELEGRAM_OTP_TIMEOUT", "180"))
+
+    code = getSmsCode(timeout=auto_timeout, since=started_at)
+    if code:
+        return code, "sms"
+
     try:
-        item = _smsQueue.get(timeout=timeout)
-        code = item.get("code")
+        from core.notifier import waitTelegramOtp
 
-        print("OTP CODE:", code)
-        logging.info(f"OTP code received: {code}")
+        code = waitTelegramOtp(token=token, timeout=manual_timeout, prompt=True)
+        if code:
+            return code, "telegram"
 
-        return code
+    except Exception as e:
+        logging.warning(f"Telegram manual OTP fallback failed: {e}")
 
-    except queue.Empty:
-        logging.warning("SMS code timeout.")
-        return None
+    # Last short check: maybe SMS arrived while the operator prompt was being sent.
+    code = getSmsCode(timeout=5, since=started_at)
+    if code:
+        return code, "sms_late"
+
+    return None, None
+
+
+def findOtpInput(page, timeout=30000):
+    selectors = [
+        "input[name='otp']",
+        "input[autocomplete='one-time-code']",
+        "input[type='tel']",
+        "input[inputmode='numeric']",
+        "input:visible",
+    ]
+
+    deadline = time.time() + (timeout / 1000)
+
+    while time.time() < deadline:
+        for selector in selectors:
+            try:
+                locator = page.locator(selector).first
+                if locator.count() > 0:
+                    locator.wait_for(state="visible", timeout=1000)
+                    return locator
+            except Exception:
+                pass
+
+        page.wait_for_timeout(300)
+
+    raise Exception("otp_input_not_found")
+
+
+def clickOtpSubmitIfPresent(page):
+    submit_selectors = [
+        "button:has-text('ثبت کد امنیتی')",
+        "button:has-text('تایید')",
+        "button:has-text('تأیید')",
+        "button[type='submit']",
+    ]
+
+    for selector in submit_selectors:
+        try:
+            button = page.locator(selector).first
+            if button.count() == 0:
+                continue
+
+            button.wait_for(state="visible", timeout=1500)
+
+            wait_start = time.time()
+            while button.is_disabled() and time.time() - wait_start < 8:
+                page.wait_for_timeout(250)
+
+            if button.is_enabled():
+                button.click(timeout=5000)
+                logging.info(f"[otp] submit clicked: {selector}")
+                return True
+
+        except Exception as e:
+            logging.debug(f"[otp] submit selector skipped {selector}: {e}")
+
+    return False
 
 
 def submitOtpWithPlaywright(page, otpCode):
-
     try:
-
         logging.info(f"[otp] submitting otp: {otpCode}")
 
-        otp_input = page.locator("input[name='otp']").first
+        otp_input = findOtpInput(page, timeout=30000)
+        page.wait_for_timeout(random.randint(500, 1200))
 
-        otp_input.wait_for(
-            state="visible",
-            timeout=30000,
-        )
-
-        page.wait_for_timeout(random.randint(1200, 2200))
-
-        otp_input.click()
-
-        page.wait_for_timeout(random.randint(150, 350))
-
-        otp_input.fill("")
-
-        page.wait_for_timeout(random.randint(100, 250))
-
-        otp_input.type(
-            str(otpCode),
-            delay=random.randint(80, 160),
-        )
+        otp_input.click(timeout=5000)
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        page.keyboard.type(str(otpCode), delay=random.randint(50, 120))
 
         logging.info("[otp] otp typed")
 
-        # مطمئن شو کامل تایپ شده
-        wait_start = time.time()
+        # The OTP input can disappear immediately after auto-submit. Do not fail on that.
+        verified_or_detached = False
+        verify_deadline = time.time() + 8
 
-        while True:
-
-            current_value = otp_input.input_value()
-
-            if current_value == str(otpCode):
-                break
-
-            if time.time() - wait_start > 10:
-                raise Exception("otp_input_value_not_set")
-
-            page.wait_for_timeout(200)
-
-        # -----------------------------
-        # AUTO SUBMIT CHECK
-        # -----------------------------
-
-        page.wait_for_timeout(5000)
-
-        if page.locator("a[href^='tel:']").count() > 0:
-
-            logging.info("[otp] auto submit success")
-
-            return {
-                "ok": True,
-                "status": "success",
-            }
-
-        result = detectContactResult(
-            page,
-            timeout=5000,
-        )
-
-        if result == "contact_opened":
-
-            logging.info("[otp] auto submit success")
-
-            return {
-                "ok": True,
-                "status": "success",
-            }
-
-        # -----------------------------
-        # MANUAL SUBMIT BUTTON
-        # -----------------------------
-
-        submit_btn = page.locator("button:has-text('ثبت کد امنیتی')").first
-
-        if submit_btn.count() > 0:
-
-            logging.info("[otp] submit button exists")
+        while time.time() < verify_deadline:
+            result = detectContactResult(page, timeout=1000)
+            if result == "contact_opened":
+                return {"ok": True, "status": "success", "mode": "auto_submit"}
 
             try:
+                value = otp_input.input_value(timeout=1000)
+                if value == str(otpCode):
+                    verified_or_detached = True
+                    break
+            except Exception:
+                # DOM changed after typing; this is common in auto-submit flows.
+                verified_or_detached = True
+                break
 
-                submit_btn.wait_for(
-                    state="visible",
-                    timeout=5000,
-                )
+            page.wait_for_timeout(250)
 
-                wait_start = time.time()
+        if not verified_or_detached:
+            logging.warning("[otp] could not verify input value, continuing to result checks")
 
-                while submit_btn.is_disabled():
+        page.wait_for_timeout(1500)
 
-                    if time.time() - wait_start > 10:
-                        break
+        result = detectContactResult(page, timeout=5000)
+        if result == "contact_opened":
+            return {"ok": True, "status": "success", "mode": "auto_submit"}
 
-                    page.wait_for_timeout(300)
+        clickOtpSubmitIfPresent(page)
 
-                if submit_btn.is_enabled():
-
-                    page.wait_for_timeout(random.randint(300, 800))
-
-                    submit_btn.click()
-
-                    logging.info("[otp] submit clicked")
-
-            except Exception as e:
-
-                logging.warning(f"[otp] submit button flow failed: {e}")
-
-        else:
-
-            logging.info("[otp] submit button not present, assuming auto submit flow")
-
-        # -----------------------------
-        # FINAL RESULT CHECK
-        # -----------------------------
-
-        page.wait_for_timeout(4000)
-
-        if page.locator("a[href^='tel:']").count() > 0:
-
-            logging.info("[otp] success")
-
-            return {
-                "ok": True,
-                "status": "success",
-            }
-
-        invalid_texts = [
-            "نامعتبر",
-            "اشتباه",
-            "کد صحیح نیست",
-        ]
-
-        for txt in invalid_texts:
-
-            if page.locator(f"text={txt}").count() > 0:
-
-                logging.warning("[otp] invalid otp")
-
-                return {
-                    "ok": False,
-                    "status": "invalid_otp",
-                }
-
-        result = detectContactResult(
-            page,
-            timeout=15000,
-        )
-
+        result = detectContactResult(page, timeout=12000)
         logging.info(f"[otp] result={result}")
 
         if result == "contact_opened":
+            return {"ok": True, "status": "success", "mode": "button_submit"}
 
-            return {
-                "ok": True,
-                "status": "success",
-            }
+        invalid_texts = ["نامعتبر", "اشتباه", "کد صحیح نیست", "کد امنیتی"]
+        for txt in invalid_texts:
+            try:
+                if page.locator(f"text={txt}").count() > 0:
+                    return {"ok": False, "status": "invalid_otp"}
+            except Exception:
+                pass
 
         if result == "error_or_limit":
+            return {"ok": False, "status": "blocked"}
 
-            return {
-                "ok": False,
-                "status": "blocked",
-            }
-
-        return {
-            "ok": False,
-            "status": "unknown",
-        }
+        return {"ok": False, "status": "unknown", "last_result": result}
 
     except Exception as e:
-
         logging.exception(f"[otp] submit failed: {e}")
+        return {"ok": False, "status": "exception", "reason": str(e)}
 
-        return {
-            "ok": False,
-            "status": "exception",
-            "reason": str(e),
-        }
+
+def closeCaptchaResources(captcha_result):
+    for key, closer in [
+        ("context", lambda obj: obj.close()),
+        ("playwright", lambda obj: obj.stop()),
+    ]:
+        obj = captcha_result.get(key) if isinstance(captcha_result, dict) else None
+        if obj:
+            try:
+                closer(obj)
+            except Exception:
+                pass
 
 
 def captchaBreakMain(session, res, token=None):
-
     logging.info("Start contact challenge check...")
-
-    otp_result_holder = {
-        "code": None,
-    }
-
-    otp_thread_error = {
-        "error": None,
-    }
-
+    startSmsServer()
+    challenge_started_at = time.time()
     captcha_result = {}
 
-    def otpListener():
-
-        try:
-
-            code = getSmsCode(timeout=300)
-
-            otp_result_holder["code"] = code
-
-            if code:
-
-                logging.info(f"[sms] OTP captured early: {code}")
-
-        except Exception as e:
-
-            otp_thread_error["error"] = str(e)
-
-            logging.warning(f"[sms] listener failed: {e}")
-
     try:
-
-        # start sms listener BEFORE captcha
-        sms_thread = threading.Thread(
-            target=otpListener,
-            daemon=True,
-        )
-
-        sms_thread.start()
-
-        logging.info("[sms] listener started before captcha")
-
-        # solve captcha
         captcha_result = solveCaptcha(token)
-
         status = captcha_result.get("status")
-
         reason = captcha_result.get("reason")
-
         extra = captcha_result.get("extra", {})
 
         logging.info(
-            f"[captchaBreakMain] token={token}, "
-            f"status={status}, "
-            f"reason={reason}"
+            f"[captchaBreakMain] token={token}, status={status}, reason={reason}"
         )
 
-        # success
-        if status == "success":
-
-            logging.info(f"CAPTCHA solved successfully for token {token}")
-
-            wait_start = time.time()
-
-            while not otp_result_holder["code"]:
-
-                if time.time() - wait_start > 30:
-                    break
-
-                time.sleep(0.5)
-
-            otp = otp_result_holder["code"]
-
-            if not otp:
-
-                logging.warning(f"[sms] OTP not received for token {token}")
-
+        if status != "success":
+            if status == "blocked":
                 return {
                     "ok": False,
-                    "status": "otp_timeout",
-                    "reason": "sms_code_not_received",
+                    "status": "blocked",
+                    "reason": reason,
                     "token": token,
+                    "extra": extra,
                 }
-
-            logging.info(f"[sms] OTP received for token {token}: {otp}")
-
-            page = captcha_result.get("page")
-
-            if not page:
-
-                return {
-                    "ok": False,
-                    "status": "page_missing",
-                    "token": token,
-                }
-
-            otp_response = submitOtpWithPlaywright(
-                page=page,
-                otpCode=otp,
-            )
-
-            if not otp_response or not otp_response.get("ok"):
-
-                return {
-                    "ok": False,
-                    "status": "otp_submit_failed",
-                    "reason": (
-                        otp_response.get("status")
-                        if isinstance(otp_response, dict)
-                        else "otp_response_empty"
-                    ),
-                    "token": token,
-                    "otp": otp,
-                    "otp_result": otp_response,
-                }
-
-            return {
-                "ok": True,
-                "status": "success",
-                "reason": reason,
-                "token": token,
-                "otp": otp,
-                "otp_result": otp_response,
-            }
-
-        # blocked
-        if status == "blocked":
 
             return {
                 "ok": False,
-                "status": "blocked",
+                "status": status or "failed",
                 "reason": reason,
                 "token": token,
                 "extra": extra,
             }
 
-        # other failures
+        logging.info(f"CAPTCHA/contact challenge opened OTP step for token {token}")
+
+        otp, otp_source = getOtpCode(token=token, started_at=challenge_started_at)
+        if not otp:
+            return {
+                "ok": False,
+                "status": "otp_timeout",
+                "reason": "sms_and_telegram_otp_not_received",
+                "token": token,
+            }
+
+        logging.info(f"[otp] OTP received for token {token} from {otp_source}: {otp}")
+
+        page = captcha_result.get("page")
+        if not page:
+            return {"ok": False, "status": "page_missing", "token": token}
+
+        otp_response = submitOtpWithPlaywright(page=page, otpCode=otp)
+        if not otp_response or not otp_response.get("ok"):
+            return {
+                "ok": False,
+                "status": "otp_submit_failed",
+                "reason": (
+                    otp_response.get("status")
+                    if isinstance(otp_response, dict)
+                    else "otp_response_empty"
+                ),
+                "token": token,
+                "otp_source": otp_source,
+                "otp_result": otp_response,
+            }
+
         return {
-            "ok": False,
-            "status": status or "failed",
+            "ok": True,
+            "status": "success",
             "reason": reason,
             "token": token,
-            "extra": extra,
+            "otp_source": otp_source,
+            "otp_result": otp_response,
         }
 
     except Exception as e:
-
         logging.exception(f"Contact challenge check failed: {e}")
-
-        return {
-            "ok": False,
-            "status": "exception",
-            "reason": str(e),
-            "token": token,
-        }
+        return {"ok": False, "status": "exception", "reason": str(e), "token": token}
 
     finally:
-
-        try:
-
-            page = captcha_result.get("page")
-
-            if page:
-                page.close()
-
-        except Exception:
-            pass
-
-        try:
-
-            context = captcha_result.get("context")
-
-            if context:
-                context.close()
-
-        except Exception:
-            pass
-
-        try:
-
-            playwright = captcha_result.get("playwright")
-
-            if playwright:
-                playwright.stop()
-
-        except Exception:
-            pass
+        closeCaptchaResources(captcha_result)

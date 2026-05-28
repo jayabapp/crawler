@@ -3,12 +3,12 @@ All div crawlers together
 
 
 
-*** How to export data to Excel ***
+# How to export data to Excel
     python3 -m dataService.dataMain
 
 
 
-*** How to run with docker ***
+# How to run with docker
     <!-- Start if you never login before or you ran into a CAPTCHA do this if not skip this -->
         <!-- For all phones. 1 is just an example -->
         1. mkdir -p profiles/phone1
@@ -22,7 +22,7 @@ All div crawlers together
 
 
 
-*** How to use: ***
+# How to use:
     <!-- Start if you never login before or you ran into a CAPTCHA do this if not skip this -->
     1. Run login.py
     2. Try to see phone number of an ad
@@ -35,7 +35,7 @@ All div crawlers together
     python3 main.py CRAWLER_NAME
 
 
-*** Env file: ***
+# Env file:
     USERNAME_DB="database username"
     PASSWORD_DB="database password"
     HOSTNAME_DB="database host"
@@ -51,3 +51,9 @@ All div crawlers together
     CONTACTS_BEFORE_LONG_COOLDOWN=12
     CONTACT_LONG_COOLDOWN_MIN=300
     CONTACT_LONG_COOLDOWN_MAX=500
+
+
+# If you change:
+    sudo docker compose down
+    sudo docker compose build --no-cache
+    sudo docker compose up

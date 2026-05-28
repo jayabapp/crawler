@@ -8,6 +8,7 @@ import time
 import traceback
 import requests
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from core.contactBrowser import CONTACT_CAPTCHA, getContactSync
 from core.notifier import sendTelegram
 from core.httpClient import createSession, randomSleep, refreshDynamicHeaders
@@ -420,6 +421,57 @@ def fetchAdData(session, token):
     return None
 
 
+
+def envInt(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def envFloat(name, default):
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def fetchAdDataWithNewSession(token, referer):
+    session = createSession(referer=referer, allowedMethods=["GET"])
+    return token, fetchAdData(session, token)
+
+
+def fetchAdsConcurrently(tokens, referer):
+    """
+    Fetch ad JSON in parallel. Contact/OTP requests remain sequential later.
+    Tune with AD_FETCH_WORKERS; use 1 to disable concurrency.
+    """
+    workers = max(1, envInt("AD_FETCH_WORKERS", 6))
+
+    if workers == 1 or len(tokens) <= 1:
+        return {token: fetchAdData(createSession(referer=referer, allowedMethods=["GET"]), token) for token in tokens}
+
+    results = {}
+    logging.info(f"Fetching {len(tokens)} ads concurrently with {workers} workers...")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_token = {
+            executor.submit(fetchAdDataWithNewSession, token, referer): token
+            for token in tokens
+        }
+
+        for future in as_completed(future_to_token):
+            token = future_to_token[future]
+            try:
+                _, data = future.result()
+                results[token] = data
+            except Exception as e:
+                logging.warning(f"Concurrent fetch failed for token {token}: {e}")
+                results[token] = None
+
+    return results
+
+
 def processAds(
     conn,
     tokens,
@@ -463,17 +515,15 @@ def processAds(
 
         logging.info(f"{categoryName}: {len(tokens)} tokens after database filter.")
 
+        adDataByToken = fetchAdsConcurrently(tokens, referer=referer)
+
         for index, token in enumerate(tokens):
-            randomSleep(3, 9)
+            tokenDelayMin = envFloat("TOKEN_PROCESS_DELAY_MIN", 0)
+            tokenDelayMax = envFloat("TOKEN_PROCESS_DELAY_MAX", 1.5)
+            if tokenDelayMax > 0:
+                time.sleep(random.uniform(tokenDelayMin, tokenDelayMax))
 
-            if index % random.randint(7, 12) == 0 and index != 0:
-                longSleep = random.uniform(10, 30)
-                logging.info(
-                    f"{categoryName}: cooling down for {int(longSleep)} seconds..."
-                )
-                time.sleep(longSleep)
-
-            res = fetchAdData(session, token)
+            res = adDataByToken.get(token)
 
             if not res:
                 logging.warning(f"{categoryName}: no response for token {token}")
@@ -549,7 +599,10 @@ def processAds(
                     )
                     continue
 
-            randomSleep(20, 60)
+            preContactDelayMin = envFloat("PRE_CONTACT_DELAY_MIN", 1)
+            preContactDelayMax = envFloat("PRE_CONTACT_DELAY_MAX", 4)
+            if preContactDelayMax > 0:
+                time.sleep(random.uniform(preContactDelayMin, preContactDelayMax))
 
             mobile = getMobile(res, token)
             if mobile == CONTACT_CAPTCHA:
@@ -698,16 +751,15 @@ def processAds(
                 conn.rollback()
                 continue
 
-            waitTime = random.uniform(
-                max(5, REQUEST_DELAY - 5),
-                REQUEST_DELAY + 2,
-            )
+            postInsertMin = envFloat("POST_INSERT_DELAY_MIN", 0)
+            postInsertMax = envFloat("POST_INSERT_DELAY_MAX", 1.5)
+            waitTime = random.uniform(postInsertMin, postInsertMax)
 
-            logging.info(
-                f"{categoryName}: waiting {int(waitTime)} seconds before next ad..."
-            )
-
-            time.sleep(waitTime)
+            if waitTime > 0:
+                logging.info(
+                    f"{categoryName}: waiting {waitTime:.1f} seconds before next ad..."
+                )
+                time.sleep(waitTime)
 
         logging.info(f"{categoryName}: data processing completed successfully.")
 
