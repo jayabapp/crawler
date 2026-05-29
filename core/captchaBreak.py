@@ -18,6 +18,40 @@ _serverStarted = False
 _serverLock = threading.Lock()
 
 
+def extractMobileFromPage(page):
+    selectors = [
+        "a[href^='tel:']",
+        "text=/09[0-9]{9}/",
+    ]
+
+    try:
+        telLinks = page.locator("a[href^='tel:']")
+
+        for index in range(telLinks.count()):
+            href = telLinks.nth(index).get_attribute("href")
+
+            if href and href.startswith("tel:"):
+                mobile = href.replace("tel:", "").strip()
+
+                if mobile:
+                    return mobile
+
+    except Exception:
+        pass
+
+    try:
+        bodyText = page.locator("body").inner_text(timeout=3000)
+        match = re.search(r"09\d{9}", bodyText)
+
+        if match:
+            return match.group(0)
+
+    except Exception:
+        pass
+
+    return None
+
+
 # -----------------------------------------
 # ********** CAPTCHA PART **********
 # -----------------------------------------
@@ -803,7 +837,9 @@ def submitOtpWithPlaywright(page, otpCode):
             page.wait_for_timeout(250)
 
         if not verified_or_detached:
-            logging.warning("[otp] could not verify input value, continuing to result checks")
+            logging.warning(
+                "[otp] could not verify input value, continuing to result checks"
+            )
 
         page.wait_for_timeout(1500)
 
@@ -884,50 +920,120 @@ def captchaBreakMain(session, res, token=None):
                 "extra": extra,
             }
 
-        logging.info(f"CAPTCHA/contact challenge opened OTP step for token {token}")
+        page = captcha_result.get("page")
 
-        otp, otp_source = getOtpCode(token=token, started_at=challenge_started_at)
-        if not otp:
+        if not page:
             return {
                 "ok": False,
-                "status": "otp_timeout",
-                "reason": "sms_and_telegram_otp_not_received",
+                "status": "page_missing",
+                "reason": reason,
                 "token": token,
             }
 
-        logging.info(f"[otp] OTP received for token {token} from {otp_source}: {otp}")
+        # حالت ۱: شماره مستقیم باز شده و OTP لازم نیست
+        if reason == "contact_opened":
+            mobile = extractMobileFromPage(page)
 
-        page = captcha_result.get("page")
-        if not page:
-            return {"ok": False, "status": "page_missing", "token": token}
+            if mobile:
+                return {
+                    "ok": True,
+                    "status": "success",
+                    "reason": "contact_opened",
+                    "token": token,
+                    "mobile": mobile,
+                    "otp_source": None,
+                    "otp_result": {
+                        "ok": True,
+                        "status": "not_required",
+                    },
+                }
 
-        otp_response = submitOtpWithPlaywright(page=page, otpCode=otp)
-        if not otp_response or not otp_response.get("ok"):
             return {
                 "ok": False,
-                "status": "otp_submit_failed",
-                "reason": (
-                    otp_response.get("status")
-                    if isinstance(otp_response, dict)
-                    else "otp_response_empty"
-                ),
+                "status": "no_mobile",
+                "reason": "contact_opened_but_mobile_not_found",
+                "token": token,
+            }
+
+        # حالت ۲: OTP لازم شده
+        if reason == "otp":
+            logging.info(f"Contact challenge opened OTP step for token {token}")
+
+            otp, otp_source = getOtpCode(
+                token=token,
+                started_at=challenge_started_at,
+            )
+
+            if not otp:
+                return {
+                    "ok": False,
+                    "status": "otp_timeout",
+                    "reason": "sms_and_telegram_otp_not_received",
+                    "token": token,
+                }
+
+            logging.info(
+                f"[otp] OTP received for token {token} from {otp_source}: {otp}"
+            )
+
+            otp_response = submitOtpWithPlaywright(
+                page=page,
+                otpCode=otp,
+            )
+
+            if not otp_response or not otp_response.get("ok"):
+                return {
+                    "ok": False,
+                    "status": "otp_submit_failed",
+                    "reason": (
+                        otp_response.get("status")
+                        if isinstance(otp_response, dict)
+                        else "otp_response_empty"
+                    ),
+                    "token": token,
+                    "otp_source": otp_source,
+                    "otp_result": otp_response,
+                }
+
+            mobile = extractMobileFromPage(page)
+
+            if mobile:
+                return {
+                    "ok": True,
+                    "status": "success",
+                    "reason": "otp",
+                    "token": token,
+                    "mobile": mobile,
+                    "otp_source": otp_source,
+                    "otp_result": otp_response,
+                }
+
+            return {
+                "ok": False,
+                "status": "no_mobile",
+                "reason": "otp_success_but_mobile_not_found",
                 "token": token,
                 "otp_source": otp_source,
                 "otp_result": otp_response,
             }
 
         return {
-            "ok": True,
-            "status": "success",
+            "ok": False,
+            "status": "unknown_success_reason",
             "reason": reason,
             "token": token,
-            "otp_source": otp_source,
-            "otp_result": otp_response,
+            "extra": extra,
         }
 
     except Exception as e:
         logging.exception(f"Contact challenge check failed: {e}")
-        return {"ok": False, "status": "exception", "reason": str(e), "token": token}
+
+        return {
+            "ok": False,
+            "status": "exception",
+            "reason": str(e),
+            "token": token,
+        }
 
     finally:
         closeCaptchaResources(captcha_result)

@@ -421,7 +421,6 @@ def fetchAdData(session, token):
     return None
 
 
-
 def envInt(name, default):
     try:
         return int(os.getenv(name, str(default)))
@@ -449,7 +448,12 @@ def fetchAdsConcurrently(tokens, referer):
     workers = max(1, envInt("AD_FETCH_WORKERS", 6))
 
     if workers == 1 or len(tokens) <= 1:
-        return {token: fetchAdData(createSession(referer=referer, allowedMethods=["GET"]), token) for token in tokens}
+        return {
+            token: fetchAdData(
+                createSession(referer=referer, allowedMethods=["GET"]), token
+            )
+            for token in tokens
+        }
 
     results = {}
     logging.info(f"Fetching {len(tokens)} ads concurrently with {workers} workers...")
@@ -623,18 +627,36 @@ def processAds(
                             f"CAPTCHA/contact challenge passed for token {token}"
                         )
                         return True
-
                     if isinstance(captchaRes, dict):
                         status = captchaRes.get("status")
                         reason = captchaRes.get("reason")
 
                         if status == "success":
-                            logging.info(
-                                f"{categoryName}: contact challenge solved successfully "
+                            mobile = captchaRes.get("mobile")
+
+                            if mobile:
+                                logging.info(
+                                    f"{categoryName}: contact challenge solved successfully "
+                                    f"for token {token}. reason={reason}, mobile={mobile}"
+                                )
+                                break
+
+                            logging.warning(
+                                f"{categoryName}: contact challenge solved but mobile not found "
                                 f"for token {token}. reason={reason}"
                             )
-                            return True
-                        # نیاز به حل دستی
+
+                            # اینجا retry بی‌فایده است؛ چون challenge موفق بوده ولی شماره پیدا نشده
+                            break
+
+                        if status == "no_mobile":
+                            logging.info(
+                                f"{categoryName}: ad has no mobile or mobile was not shown "
+                                f"for token {token}. reason={reason}. Skipping token."
+                            )
+                            mobile = None
+                            break
+
                         if status == "manual_required":
                             logging.warning(
                                 f"{categoryName}: manual CAPTCHA required for token {token}. "
@@ -642,7 +664,6 @@ def processAds(
                             )
                             break
 
-                        # بلاک یا ریت‌لیمیت
                         if status == "blocked":
                             logging.warning(
                                 f"{categoryName}: blocked/limited while getting mobile for token {token}. "
@@ -656,11 +677,9 @@ def processAds(
                             f"status={status}, reason={reason}. retry={attempt + 1}"
                         )
 
-                        # اگر هنوز retry باقی مونده
                         if attempt < max_retries - 1:
                             time.sleep(5)
                             continue
-
                     else:
                         logging.warning(
                             f"{categoryName}: unknown captcha result for token {token}. "
@@ -671,10 +690,13 @@ def processAds(
                             time.sleep(5)
                             continue
 
-                logging.warning(
-                    f"{categoryName}: all CAPTCHA retries failed for token {token}. Skipping token."
-                )
-                continue
+                if not mobile:
+                    logging.warning(
+                        f"{categoryName}: mobile not available after contact challenge "
+                        f"for token {token}. Skipping token."
+                    )
+                    continue
+
             if mobile is None:
                 logging.warning(f"{categoryName}: mobile not found for token {token}")
                 continue
