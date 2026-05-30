@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from playwright.async_api import async_playwright
@@ -239,14 +240,30 @@ async def fetchContactAsync(token, contactUuid):
         return None
 
 
+def _runFetchContactInDedicatedThread(token, contactUuid):
+    """
+    Run the async Playwright contact fetch in a fresh thread.
+
+    This is used when the current thread already has an active asyncio loop.
+    Creating another loop in the same thread causes:
+    "Cannot run the event loop while another loop is running".
+    """
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="contact-browser") as executor:
+        future = executor.submit(lambda: asyncio.run(fetchContactAsync(token, contactUuid)))
+        return future.result()
+
+
 def getContactSync(token, contactUuid):
     try:
-        return asyncio.run(fetchContactAsync(token, contactUuid))
+        asyncio.get_running_loop()
     except RuntimeError:
-        loop = asyncio.new_event_loop()
+        # Normal synchronous path: no loop is running in this thread.
+        return asyncio.run(fetchContactAsync(token, contactUuid))
 
-        try:
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(fetchContactAsync(token, contactUuid))
-        finally:
-            loop.close()
+    # Safe path for callers that are already inside an asyncio loop.
+    logging.warning(
+        f"Active asyncio loop detected while getting contact for token {token}; "
+        "running contact browser in a dedicated thread."
+    )
+    return _runFetchContactInDedicatedThread(token, contactUuid)

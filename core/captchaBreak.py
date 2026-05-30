@@ -252,11 +252,13 @@ def captchaResult(status, reason=None, token=None, extra=None):
 
 def solveCaptcha(token):
 
-    playwright = sync_playwright().start()
-
+    playwright = None
     browser_context = None
+    keep_resources_open = False
 
     try:
+
+        playwright = sync_playwright().start()
 
         logging.info(f"[captcha] starting for {token}")
 
@@ -351,6 +353,7 @@ def solveCaptcha(token):
 
             if result in ["otp", "contact_opened"]:
 
+                keep_resources_open = True
                 return {
                     "ok": True,
                     "status": "success",
@@ -517,6 +520,7 @@ def solveCaptcha(token):
 
             if result in ["otp", "contact_opened"]:
 
+                keep_resources_open = True
                 return {
                     "ok": True,
                     "status": "success",
@@ -553,22 +557,29 @@ def solveCaptcha(token):
 
         logging.exception(f"[captcha] failed for token {token}: {e}")
 
-        try:
-            if browser_context:
-                browser_context.close()
-        except Exception:
-            pass
-
-        try:
-            playwright.stop()
-        except Exception:
-            pass
-
         return captchaResult(
             "failed",
             reason=str(e),
             token=token,
         )
+
+    finally:
+        # Keep the page/context open only when captchaBreakMain still needs it
+        # for mobile extraction or OTP submission. Every failure/early return
+        # must close Playwright; otherwise the next retry can inherit a broken
+        # Playwright/asyncio state.
+        if not keep_resources_open:
+            try:
+                if browser_context:
+                    browser_context.close()
+            except Exception:
+                pass
+
+            try:
+                if playwright:
+                    playwright.stop()
+            except Exception:
+                pass
 
 
 # -----------------------------------------

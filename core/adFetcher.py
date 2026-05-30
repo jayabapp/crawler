@@ -435,6 +435,21 @@ def envFloat(name, default):
         return default
 
 
+def runContactChallengeIsolated(session, res, token):
+    """
+    captchaBreak.py currently uses Playwright Sync API. Run it in a fresh
+    thread so it never executes inside a thread that already has an asyncio
+    event loop. This prevents Playwright's "Sync API inside asyncio loop"
+    error and keeps retries independent.
+    """
+
+    from core.captchaBreak import captchaBreakMain
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="contact-challenge") as executor:
+        future = executor.submit(captchaBreakMain, session, res, token)
+        return future.result()
+
+
 def fetchAdDataWithNewSession(token, referer):
     session = createSession(referer=referer, allowedMethods=["GET"])
     return token, fetchAdData(session, token)
@@ -610,8 +625,6 @@ def processAds(
 
             mobile = getMobile(res, token)
             if mobile == CONTACT_CAPTCHA:
-                from core.captchaBreak import captchaBreakMain
-
                 max_retries = 3
                 captchaRes = None
 
@@ -620,7 +633,7 @@ def processAds(
                         f"{categoryName}: CAPTCHA attempt {attempt + 1}/{max_retries} for token {token}"
                     )
 
-                    captchaRes = captchaBreakMain(session=session, res=res, token=token)
+                    captchaRes = runContactChallengeIsolated(session=session, res=res, token=token)
 
                     if captchaRes is True:
                         logging.info(
@@ -689,6 +702,14 @@ def processAds(
                         if attempt < max_retries - 1:
                             time.sleep(5)
                             continue
+
+                if mobile == CONTACT_CAPTCHA:
+                    logging.warning(
+                        f"{categoryName}: contact challenge exhausted all retries "
+                        f"for token {token}. Skipping token without inserting placeholder mobile."
+                    )
+                    mobile = None
+                    continue
 
                 if not mobile:
                     logging.warning(
