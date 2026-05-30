@@ -12,13 +12,13 @@ All div crawlers together
     <!-- Start if you never login before or you ran into a CAPTCHA do this if not skip this -->
         <!-- For all phones. 1 is just an example -->
         1. mkdir -p profiles/phone1
-        2. DIVAR_PROFILE_DIR=$(pwd)/profiles/phone1 python3 -m core.login
+        2. DIVAR_PROFILE_DIR=$(pwd)/profiles/phone1 python3 -m core.login (docker compose run login_phone1)
         3. Login into website with your phone number
         4. Try to see phone number of an ad
         5. If you can see the phone number close the webpage then press ENTER in termina
     <!-- End if you never login before or you ran into a CAPTCHA do this if not skip this -->
     
-    docker compose up -d --build
+    docker compose up -d --build (docker compose up -d rent_worker_1 rent_worker_2)
 
 
 
