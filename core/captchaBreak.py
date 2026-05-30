@@ -209,8 +209,13 @@ def detectContactResult(page, timeout=90000):
                 return "puzzle"
 
             if (
-                page.locator("text=کد تایید").count() > 0
-                or page.locator("input[type='tel']").count() > 0
+                page.locator("input[name='otp']:visible").count() > 0
+                or page.locator("input[aria-label='کد امنیتی']:visible").count() > 0
+                or page.locator("button:has-text('ثبت کد امنیتی'):visible").count() > 0
+                or page.locator("button:has-text('درخواست مجدد'):visible").count() > 0
+                or page.locator("text=کد امنیتی").count() > 0
+                or page.locator("text=کد تایید").count() > 0
+                or page.locator("text=کد تأیید").count() > 0
             ):
                 return "otp"
 
@@ -247,11 +252,13 @@ def captchaResult(status, reason=None, token=None, extra=None):
 
 def solveCaptcha(token):
 
-    playwright = sync_playwright().start()
-
+    playwright = None
     browser_context = None
+    keep_resources_open = False
 
     try:
+
+        playwright = sync_playwright().start()
 
         logging.info(f"[captcha] starting for {token}")
 
@@ -346,6 +353,7 @@ def solveCaptcha(token):
 
             if result in ["otp", "contact_opened"]:
 
+                keep_resources_open = True
                 return {
                     "ok": True,
                     "status": "success",
@@ -512,6 +520,7 @@ def solveCaptcha(token):
 
             if result in ["otp", "contact_opened"]:
 
+                keep_resources_open = True
                 return {
                     "ok": True,
                     "status": "success",
@@ -548,22 +557,29 @@ def solveCaptcha(token):
 
         logging.exception(f"[captcha] failed for token {token}: {e}")
 
-        try:
-            if browser_context:
-                browser_context.close()
-        except Exception:
-            pass
-
-        try:
-            playwright.stop()
-        except Exception:
-            pass
-
         return captchaResult(
             "failed",
             reason=str(e),
             token=token,
         )
+
+    finally:
+        # Keep the page/context open only when captchaBreakMain still needs it
+        # for mobile extraction or OTP submission. Every failure/early return
+        # must close Playwright; otherwise the next retry can inherit a broken
+        # Playwright/asyncio state.
+        if not keep_resources_open:
+            try:
+                if browser_context:
+                    browser_context.close()
+            except Exception:
+                pass
+
+            try:
+                if playwright:
+                    playwright.stop()
+            except Exception:
+                pass
 
 
 # -----------------------------------------
@@ -711,25 +727,101 @@ def getSmsCode(timeout=None, since=None):
             _smsCondition.wait(timeout=min(remaining, 2))
 
 
-def getOtpCode(token=None, started_at=None):
+
+def clickOtpResendIfAvailable(page, wait_seconds=None):
     """
-    First try automatic SMS webhook. If it is not received quickly,
-    ask the operator on Telegram and use their reply as OTP.
+    Click Divar's OTP resend button after its cooldown.
+    Divar usually enables "درخواست مجدد" about 2 minutes after the first SMS.
+    """
+    if page is None:
+        return False
+
+    if wait_seconds is None:
+        wait_seconds = int(os.getenv("OTP_RESEND_COOLDOWN_SECONDS", "120"))
+
+    selectors = [
+        "button[aria-label='درخواست مجدد']",
+        "button.resend-button",
+        "button:has-text('درخواست مجدد')",
+        "text=درخواست مجدد",
+    ]
+
+    logging.info(f"[otp] waiting {wait_seconds}s before clicking resend")
+    if wait_seconds > 0:
+        page.wait_for_timeout(wait_seconds * 1000)
+
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() == 0:
+                continue
+
+            locator.wait_for(state="visible", timeout=3000)
+
+            enabled_deadline = time.time() + 15
+            while time.time() < enabled_deadline:
+                try:
+                    if not locator.is_disabled():
+                        locator.click(timeout=5000)
+                        logging.info(f"[otp] resend clicked: {selector}")
+                        page.wait_for_timeout(1500)
+                        return True
+                except Exception:
+                    break
+
+                page.wait_for_timeout(500)
+
+        except Exception as e:
+            logging.debug(f"[otp] resend selector skipped {selector}: {e}")
+
+    logging.warning("[otp] resend button was not found/enabled")
+    return False
+
+
+def getOtpCode(token=None, started_at=None, page=None):
+    """
+    Listen for the first SMS OTP. If it is not received, wait for Divar's
+    2-minute resend cooldown, click "درخواست مجدد", then listen again.
+    Telegram/manual input is still kept as the last fallback.
     """
     if started_at is None:
         started_at = time.time()
 
     auto_timeout = int(os.getenv("AUTO_SMS_OTP_TIMEOUT", "45"))
+    after_resend_timeout = int(os.getenv("AUTO_SMS_OTP_AFTER_RESEND_TIMEOUT", "90"))
     manual_timeout = int(os.getenv("MANUAL_TELEGRAM_OTP_TIMEOUT", "180"))
+    resend_cooldown = int(os.getenv("OTP_RESEND_COOLDOWN_SECONDS", "120"))
 
+    # 1) First listen: covers the normal "OTP modal opened, SMS received" path.
     code = getSmsCode(timeout=auto_timeout, since=started_at)
     if code:
         return code, "sms"
 
+    # 2) No SMS yet: click resend, but only after Divar's 2-minute cooldown.
+    resend_clicked = False
+    if page is not None:
+        elapsed = time.time() - started_at
+        wait_before_resend = max(0, resend_cooldown - int(elapsed))
+        resend_clicked = clickOtpResendIfAvailable(
+            page,
+            wait_seconds=wait_before_resend,
+        )
+
+        if resend_clicked:
+            resend_started_at = time.time()
+            code = getSmsCode(timeout=after_resend_timeout, since=resend_started_at)
+            if code:
+                return code, "sms_resend"
+
+    # 3) Manual Telegram fallback after both automatic listens failed.
     try:
         from core.notifier import waitTelegramOtp
 
-        code = waitTelegramOtp(token=token, timeout=manual_timeout, prompt=True)
+        code = waitTelegramOtp(
+            token=token,
+            timeout=manual_timeout,
+            prompt=True,
+        )
         if code:
             return code, "telegram"
 
@@ -742,7 +834,6 @@ def getOtpCode(token=None, started_at=None):
         return code, "sms_late"
 
     return None, None
-
 
 def findOtpInput(page, timeout=30000):
     selectors = [
@@ -962,6 +1053,7 @@ def captchaBreakMain(session, res, token=None):
             otp, otp_source = getOtpCode(
                 token=token,
                 started_at=challenge_started_at,
+                page=page,
             )
 
             if not otp:
@@ -982,18 +1074,79 @@ def captchaBreakMain(session, res, token=None):
             )
 
             if not otp_response or not otp_response.get("ok"):
-                return {
-                    "ok": False,
-                    "status": "otp_submit_failed",
-                    "reason": (
-                        otp_response.get("status")
-                        if isinstance(otp_response, dict)
-                        else "otp_response_empty"
-                    ),
-                    "token": token,
-                    "otp_source": otp_source,
-                    "otp_result": otp_response,
-                }
+                first_failure_reason = (
+                    otp_response.get("status")
+                    if isinstance(otp_response, dict)
+                    else "otp_response_empty"
+                )
+
+                # If an old/wrong OTP was consumed, request a fresh code once.
+                if first_failure_reason in ["invalid_otp", "unknown"]:
+                    logging.warning(
+                        f"[otp] first OTP failed for token {token}: {first_failure_reason}. "
+                        "Trying resend once."
+                    )
+
+                    resend_clicked = clickOtpResendIfAvailable(page, wait_seconds=None)
+                    if resend_clicked:
+                        resend_started_at = time.time()
+                        retry_otp, retry_source = getSmsCode(
+                            timeout=int(os.getenv("AUTO_SMS_OTP_AFTER_RESEND_TIMEOUT", "90")),
+                            since=resend_started_at,
+                        ), "sms_resend_after_invalid"
+
+                        if retry_otp:
+                            retry_response = submitOtpWithPlaywright(
+                                page=page,
+                                otpCode=retry_otp,
+                            )
+                            if retry_response and retry_response.get("ok"):
+                                otp = retry_otp
+                                otp_source = retry_source
+                                otp_response = retry_response
+                            else:
+                                return {
+                                    "ok": False,
+                                    "status": "otp_submit_failed",
+                                    "reason": (
+                                        retry_response.get("status")
+                                        if isinstance(retry_response, dict)
+                                        else "retry_otp_response_empty"
+                                    ),
+                                    "token": token,
+                                    "otp_source": retry_source,
+                                    "otp_result": retry_response,
+                                    "first_otp_source": otp_source,
+                                    "first_otp_result": otp_response,
+                                }
+                        else:
+                            return {
+                                "ok": False,
+                                "status": "otp_timeout",
+                                "reason": "otp_invalid_then_resend_sms_not_received",
+                                "token": token,
+                                "otp_source": otp_source,
+                                "otp_result": otp_response,
+                            }
+                    else:
+                        return {
+                            "ok": False,
+                            "status": "otp_submit_failed",
+                            "reason": "otp_failed_and_resend_not_available",
+                            "token": token,
+                            "otp_source": otp_source,
+                            "otp_result": otp_response,
+                        }
+
+                if not otp_response or not otp_response.get("ok"):
+                    return {
+                        "ok": False,
+                        "status": "otp_submit_failed",
+                        "reason": first_failure_reason,
+                        "token": token,
+                        "otp_source": otp_source,
+                        "otp_result": otp_response,
+                    }
 
             mobile = extractMobileFromPage(page)
 
