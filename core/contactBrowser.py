@@ -25,15 +25,68 @@ def isCaptchaResponse(status, bodyText):
     captchaSignals = [
         "captcha",
         "کپچا",
-        "challenge",
         "blocked",
         "too many requests",
         "rate limit",
-        "احراز",
         "ربات",
     ]
 
     return any(signal in lowered for signal in captchaSignals)
+
+
+def isOtpOrContactChallengeResponse(status, bodyText):
+    """
+    Divar sometimes answers the contact_info API with HTTP 200 but without
+    phone_number, because the real UI has opened the security-code/OTP step.
+    If we return None in that case, adFetcher incorrectly logs "mobile not found".
+    Returning CONTACT_CAPTCHA lets the existing captchaBreakMain flow open the
+    ad page, wait for the OTP, submit it, and then extract the mobile number.
+    """
+    if status != 200 or not bodyText:
+        return False
+
+    lowered = bodyText.lower()
+    textSignals = [
+        "otp",
+        "one_time",
+        "one-time",
+        "verification",
+        "verify",
+        "security_code",
+        "security code",
+        "کد امنیتی",
+        "کد تایید",
+        "کد تأیید",
+        "کد پیامک",
+        "ارسال شده",
+        "ثبت کد امنیتی",
+        "درخواست مجدد",
+    ]
+
+    if any(signal in lowered for signal in textSignals):
+        return True
+
+    try:
+        body = json.loads(bodyText)
+    except Exception:
+        return False
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                keyText = str(key).lower()
+                if any(signal in keyText for signal in textSignals):
+                    return True
+                if walk(child):
+                    return True
+        elif isinstance(value, list):
+            return any(walk(item) for item in value)
+        elif isinstance(value, str):
+            valueText = value.lower()
+            return any(signal in valueText for signal in textSignals)
+        return False
+
+    return walk(body)
 
 
 async def fetchContactAsync(token, contactUuid):
@@ -105,6 +158,23 @@ async def fetchContactAsync(token, contactUuid):
             status = result.get("status")
             bodyText = result.get("body", "")
 
+            if isOtpOrContactChallengeResponse(status, bodyText):
+                logging.warning(
+                    f"Contact OTP/security-code challenge detected for token {token}. "
+                    "Switching to browser challenge flow."
+                )
+
+                message = (
+                    "⚠️ مرحله کد امنیتی/OTP دیوار فعال شد.\n\n"
+                    f"Token: <code>{token}</code>\n"
+                    f"Status: <code>{status}</code>\n\n"
+                    "سیستم مسیر مرورگر را اجرا می‌کند تا کد پیامکی را وارد کند و شماره را بخواند."
+                )
+
+                sendTelegram(message)
+                await context.close()
+                return CONTACT_CAPTCHA
+
             if isCaptchaResponse(status, bodyText):
                 message = (
                     "⚠️ کپچای دیوار فعال شد.\n\n"
@@ -148,6 +218,11 @@ async def fetchContactAsync(token, contactUuid):
                 if phoneNumber:
                     await context.close()
                     return phoneNumber
+
+            logging.warning(
+                f"Contact response for token {token} was 200 but contained neither "
+                "phone_number nor a known OTP/captcha signal."
+            )
 
             await context.close()
             return None
