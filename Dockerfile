@@ -36,8 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 COPY wheels /wheels
 
-RUN pip install --no-cache-dir -r requirements.txt
-RUN python -m playwright install --with-deps chromium
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 
 COPY . .
 

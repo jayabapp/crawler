@@ -14,3 +14,5 @@ wheels
 .venv
 state
 logs
+Dockerfile 
+docker-compose.yml

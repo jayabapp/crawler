@@ -141,7 +141,7 @@ def buildSearchPayload(categoryConfig, paginationData=None):
         categoryConfig,
         "cityIds",
         "CITY_IDS",
-        ["715"],
+        ["905", "888", "899"],
     )
 
     sortValue = getConfigValue(
