@@ -1,0 +1,163 @@
+from core.database import connectDatabase
+from dataService.services import lastDataLog, getDataFromDatabase, exportDataToExcel
+
+tables = {
+    "villa_rental": [
+        "id",
+        "token_id",
+        "city",
+        "district",
+        "title",
+        "description",
+        "rent",
+        "deposit",
+        "latitude",
+        "longitude",
+        "mobile",
+        "area",
+        "land_area",
+        "year",
+        "rooms",
+        "parking",
+        "warehouse",
+        "balcony",
+        "renovated",
+        "floor_material",
+        "wc",
+        "cooler",
+        "heater",
+        "hot_water_supplier",
+        "direction",
+        "good_for",
+        "pets_allowed",
+        "furnished",
+        "published_at",
+        "created_at",
+    ],
+    "vehicle_rental": [
+        "id",
+        "token_id",
+        "city",
+        "district",
+        "title",
+        "description",
+        "rent",
+        "deposit",
+        "latitude",
+        "longitude",
+        "mobile",
+        "brand_and_model",
+        "rental_type",
+        "rental_period",
+        "good_for",
+        "insurance_status",
+        "build_year",
+        "daily_kilometer_limit",
+        "published_at",
+        "created_at",
+    ],
+    "tour_and_charter": [
+        "id",
+        "token_id",
+        "city",
+        "district",
+        "title",
+        "description",
+        "price",
+        "latitude",
+        "longitude",
+        "mobile",
+        "transport_type",
+        "tour_type",
+        "tour_services",
+        "fixed_price",
+        "open_to_trade",
+        "hotel_rating",
+        "departure_date",
+        "return_date",
+        "days_of_stay",
+        "published_at",
+        "created_at",
+    ],
+    "ride_sharing": [
+        "id",
+        "token_id",
+        "city",
+        "district",
+        "title",
+        "description",
+        "latitude",
+        "longitude",
+        "mobile",
+        "price",
+        "departure_location",
+        "destination",
+        "departure_date",
+        "number_of_companions",
+        "pets_allowed",
+        "includes_luggage_allowance",
+        "published_at",
+        "created_at",
+    ],
+    "rent_temporary": [
+        "id",
+        "token_id",
+        "category",
+        "city",
+        "district",
+        "title",
+        "description",
+        "latitude",
+        "longitude",
+        "mobile",
+        "area",
+        "rooms",
+        "standard_capacity",
+        "extra_capacity",
+        "weekday_rate",
+        "weekend_rate",
+        "special_dates_rate",
+        "extra_person_charge",
+        "features",
+        "published_at",
+        "created_at",
+    ],
+    "catering": [
+        "id",
+        "token_id",
+        "city",
+        "district",
+        "title",
+        "description",
+        "latitude",
+        "longitude",
+        "mobile",
+        "specialties",
+        "working_hours",
+        "minimum_order",
+        "guest_capacity",
+        "food_tasting",
+        "published_at",
+        "created_at",
+    ],
+}
+
+
+def Run():
+    print("Start data service...")
+    conn = connectDatabase()
+    lastLogs = lastDataLog(conn)
+
+    for tblName, columns in tables.items():
+        lastLog = lastLogs.get(tblName)
+        data = getDataFromDatabase(conn, lastLog, tblName, columns)
+
+        exportDataToExcel(conn, tblName, columns, data)
+
+    conn.close()
+
+    print("All data excported successfully.")
+
+
+if __name__ == "__main__":
+    Run()

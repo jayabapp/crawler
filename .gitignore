@@ -1,0 +1,18 @@
+__pycache__
+.env
+# docker-compose.yml 
+# Dockerfile 
+# requirements.txt
+note.txt
+note.py
+divar_state.json
+divar_browser_profile
+profiles
+dataService/excelData
+debug
+wheels
+.venv
+state
+logs
+Dockerfile 
+docker-compose.yml
